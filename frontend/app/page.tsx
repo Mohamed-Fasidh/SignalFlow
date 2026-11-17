@@ -27,7 +27,7 @@ export default function Home() {
   const [signalDescription, setSignalDescription] = useState("");
   const [signalSource, setSignalSource] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
-  const [utilityPanel, setUtilityPanel] = useState<"help" | "settings" | "apps" | "calendar" | "notes" | "tasks" | "contacts" | "audit" | "duplicates" | "webhooks" | null>(null);
+  const [utilityPanel, setUtilityPanel] = useState<"help" | "settings" | "apps" | "calendar" | "notes" | "tasks" | "contacts" | "audit" | "duplicates" | "webhooks" | "research" | null>(null);
   const [notes, setNotes] = useState("");
   const [taskDone, setTaskDone] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
