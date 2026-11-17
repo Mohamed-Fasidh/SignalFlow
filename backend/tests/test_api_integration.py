@@ -153,7 +153,16 @@ def test_archive_signal_recalculates_score_and_audit_is_tenant_scoped():
     tenant_id = str(uuid4())
     with TestClient(app) as client:
         account = client.post("/api/v1/accounts", headers={"X-Tenant-ID": tenant_id}, json={"name": "Archive Corp", "domain": "archive.example"}).json()
-        signal = client.post("/api/v1/signals", headers={"X-Tenant-ID": tenant_id}, json={"account_id": account["id"], "signal_type": "security_hiring", "description": "Hiring a security engineering leader", "confidence": 100}).json()
+        signal = client.post(
+            "/api/v1/signals",
+            headers={"X-Tenant-ID": tenant_id},
+            json={
+                "account_id": account["id"],
+                "signal_type": "security_hiring",
+                "description": "Hiring a security engineering leader",
+                "confidence": 100,
+            },
+        ).json()
         archived = client.patch(f"/api/v1/signals/{signal['id']}/archive", headers={"X-Tenant-ID": tenant_id})
         events = client.get("/api/v1/audit/events", headers={"X-Tenant-ID": tenant_id})
         account_after = client.get(f"/api/v1/accounts/{account['id']}", headers={"X-Tenant-ID": tenant_id})
@@ -192,7 +201,8 @@ def test_webhook_delivery_inspector_and_status_endpoint():
 
 
 def test_signal_archive_can_be_undone_and_account_filters_are_explicit():
-    tenant_id = str(uuid4()); headers = {"X-Tenant-ID": tenant_id}
+    tenant_id = str(uuid4())
+    headers = {"X-Tenant-ID": tenant_id}
     with TestClient(app) as client:
         enterprise = client.post(
             "/api/v1/accounts",
@@ -200,7 +210,15 @@ def test_signal_archive_can_be_undone_and_account_filters_are_explicit():
             json={"name": "Enterprise Co", "domain": "enterprise.example", "tier": "enterprise"},
         ).json()
         smb = client.post("/api/v1/accounts", headers=headers, json={"name": "Small Co", "domain": "small.example", "tier": "smb"}).json()
-        signal = client.post("/api/v1/signals", headers=headers, json={"account_id": smb["id"], "signal_type": "funding", "description": "Announced a funding round"}).json()
+        signal = client.post(
+            "/api/v1/signals",
+            headers=headers,
+            json={
+                "account_id": smb["id"],
+                "signal_type": "funding",
+                "description": "Announced a funding round",
+            },
+        ).json()
         archived = client.patch(f"/api/v1/signals/{signal['id']}/archive", headers=headers)
         restored = client.patch(f"/api/v1/signals/{signal['id']}/restore", headers=headers)
         enterprise_filter = client.get("/api/v1/accounts?tier=enterprise", headers=headers)
