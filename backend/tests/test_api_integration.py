@@ -231,7 +231,8 @@ def test_signal_archive_can_be_undone_and_account_filters_are_explicit():
 
 
 def test_merge_transfers_source_signals_to_target_without_losing_score():
-    tenant_id = str(uuid4()); headers = {"X-Tenant-ID": tenant_id}
+    tenant_id = str(uuid4())
+    headers = {"X-Tenant-ID": tenant_id}
     with TestClient(app) as client:
         source = client.post("/api/v1/accounts", headers=headers, json={"name": "Merge Source", "domain": "merge-source.example"}).json()
         target = client.post("/api/v1/accounts", headers=headers, json={"name": "Merge Target", "domain": "merge-target.example"}).json()
@@ -256,7 +257,8 @@ def test_merge_transfers_source_signals_to_target_without_losing_score():
 
 
 def test_account_pin_is_persisted_and_audited():
-    tenant_id = str(uuid4()); headers = {"X-Tenant-ID": tenant_id}
+    tenant_id = str(uuid4())
+    headers = {"X-Tenant-ID": tenant_id}
     with TestClient(app) as client:
         account = client.post("/api/v1/accounts", headers=headers, json={"name": "Pinned Co", "domain": "pinned.example"}).json()
         pinned = client.patch(f"/api/v1/accounts/{account['id']}/pin", headers=headers, json={"pinned": True})
