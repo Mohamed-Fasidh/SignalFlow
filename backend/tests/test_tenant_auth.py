@@ -11,7 +11,8 @@ from app.core.config import settings
 
 
 def _token(claims):
-    enc = lambda value: base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+    def enc(value):
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
     header = enc({"alg": "HS256", "typ": "JWT"})
     payload = enc(claims)
     message = f"{header}.{payload}".encode()
