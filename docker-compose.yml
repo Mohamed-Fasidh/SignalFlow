@@ -1,0 +1,111 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: signalflow
+      POSTGRES_USER: signalflow_admin
+      POSTGRES_PASSWORD: signalflow_admin_dev_only
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-signalflow_runtime_dev_only}
+      MIGRATOR_DB_PASSWORD: ${MIGRATOR_DB_PASSWORD:-signalflow_migrator_dev_only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init/01-create-runtime-role.sh:/docker-entrypoint-initdb.d/01-create-runtime-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U signalflow_admin -d signalflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://signalflow_migrator:${MIGRATOR_DB_PASSWORD:-signalflow_migrator_dev_only}@db:5432/signalflow
+      REDIS_URL: redis://redis:6379/0
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  seed:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://signalflow_runtime:${APP_DB_PASSWORD:-signalflow_runtime_dev_only}@db:5432/signalflow
+      REDIS_URL: redis://redis:6379/0
+    command: ["python", "-m", "app.scripts.seed_demo"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  api:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://signalflow_runtime:${APP_DB_PASSWORD:-signalflow_runtime_dev_only}@db:5432/signalflow
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://signalflow_runtime:${APP_DB_PASSWORD:-signalflow_runtime_dev_only}@db:5432/signalflow
+      REDIS_URL: redis://redis:6379/0
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "--loglevel=INFO"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_DEMO_TENANT_ID: ${NEXT_PUBLIC_DEMO_TENANT_ID:-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

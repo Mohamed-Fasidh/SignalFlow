@@ -1,0 +1,132 @@
+name: Continuous integration
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-unit:
+    name: Backend unit and API tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend and test dependencies
+        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
+      - name: Ruff lint
+        run: ruff check app tests
+      - name: Python bytecode compilation
+        run: python -m compileall -q app alembic
+      - name: Backend tests with coverage
+        run: pytest --cov=app --cov-report=term-missing --cov-report=xml
+      - name: Upload backend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+          if-no-files-found: ignore
+
+  postgres-integration:
+    name: PostgreSQL migrations and tenant RLS
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: signalflow
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d signalflow"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      APP_DB_PASSWORD: signalflow_runtime_ci_password
+      MIGRATOR_DB_PASSWORD: signalflow_migrator_ci_password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend dependencies
+        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
+      - name: Create least-privilege database roles
+        env:
+          PGPASSWORD: postgres_ci_password
+        run: |
+          psql -h localhost -U postgres -d signalflow -v ON_ERROR_STOP=1 \
+            -v app_password="$APP_DB_PASSWORD" \
+            -v migrator_password="$MIGRATOR_DB_PASSWORD" <<'SQL'
+          CREATE ROLE signalflow_migrator LOGIN PASSWORD :'migrator_password' NOSUPERUSER NOBYPASSRLS;
+          GRANT CONNECT, CREATE ON DATABASE signalflow TO signalflow_migrator;
+          GRANT USAGE, CREATE ON SCHEMA public TO signalflow_migrator;
+          CREATE ROLE signalflow_runtime LOGIN PASSWORD :'app_password' NOSUPERUSER NOBYPASSRLS;
+          GRANT CONNECT ON DATABASE signalflow TO signalflow_runtime;
+          GRANT USAGE ON SCHEMA public TO signalflow_runtime;
+          GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO signalflow_runtime;
+          GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO signalflow_runtime;
+          ALTER DEFAULT PRIVILEGES FOR ROLE signalflow_migrator IN SCHEMA public
+            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO signalflow_runtime;
+          ALTER DEFAULT PRIVILEGES FOR ROLE signalflow_migrator IN SCHEMA public
+            GRANT USAGE, SELECT ON SEQUENCES TO signalflow_runtime;
+          SQL
+      - name: Apply all migrations using migration role
+        env:
+          DATABASE_URL: postgresql+psycopg://signalflow_migrator:signalflow_migrator_ci_password@localhost:5432/signalflow
+          SECRET_KEY: ci-only-secret-key-not-for-production
+        run: alembic upgrade head && alembic heads
+      - name: Verify tenant isolation as restricted runtime role
+        env:
+          TEST_POSTGRES_URL: postgresql+psycopg://signalflow_runtime:signalflow_runtime_ci_password@localhost:5432/signalflow
+        run: pytest -q tests/test_postgres_rls.py
+
+  frontend:
+    name: Frontend typecheck and production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript validation
+        run: npm run typecheck
+      - name: Next.js production build
+        run: npm run build
+
+  compose-config:
+    name: Docker Compose configuration validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose configuration
+        run: cp .env.example .env && docker compose --env-file .env config --quiet
