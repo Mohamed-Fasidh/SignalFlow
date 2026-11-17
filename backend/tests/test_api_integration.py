@@ -163,7 +163,8 @@ def test_archive_signal_recalculates_score_and_audit_is_tenant_scoped():
 
 
 def test_priority_duplicate_detection_and_merge():
-    tenant_id = str(uuid4()); headers = {"X-Tenant-ID": tenant_id}
+    tenant_id = str(uuid4())
+    headers = {"X-Tenant-ID": tenant_id}
     with TestClient(app) as client:
         one = client.post("/api/v1/accounts", headers=headers, json={"name": "Northstar Security", "domain": "northstar-security.example"}).json()
         two = client.post("/api/v1/accounts", headers=headers, json={"name": "Northstar Security Inc", "domain": "northstar-security-inc.example"}).json()
@@ -193,7 +194,11 @@ def test_webhook_delivery_inspector_and_status_endpoint():
 def test_signal_archive_can_be_undone_and_account_filters_are_explicit():
     tenant_id = str(uuid4()); headers = {"X-Tenant-ID": tenant_id}
     with TestClient(app) as client:
-        enterprise = client.post("/api/v1/accounts", headers=headers, json={"name": "Enterprise Co", "domain": "enterprise.example", "tier": "enterprise"}).json()
+        enterprise = client.post(
+            "/api/v1/accounts",
+            headers=headers,
+            json={"name": "Enterprise Co", "domain": "enterprise.example", "tier": "enterprise"},
+        ).json()
         smb = client.post("/api/v1/accounts", headers=headers, json={"name": "Small Co", "domain": "small.example", "tier": "smb"}).json()
         signal = client.post("/api/v1/signals", headers=headers, json={"account_id": smb["id"], "signal_type": "funding", "description": "Announced a funding round"}).json()
         archived = client.patch(f"/api/v1/signals/{signal['id']}/archive", headers=headers)
@@ -212,7 +217,16 @@ def test_merge_transfers_source_signals_to_target_without_losing_score():
     with TestClient(app) as client:
         source = client.post("/api/v1/accounts", headers=headers, json={"name": "Merge Source", "domain": "merge-source.example"}).json()
         target = client.post("/api/v1/accounts", headers=headers, json={"name": "Merge Target", "domain": "merge-target.example"}).json()
-        signal = client.post("/api/v1/signals", headers=headers, json={"account_id": source["id"], "signal_type": "funding", "description": "Raised a new growth funding round", "confidence": 100}).json()
+        signal = client.post(
+            "/api/v1/signals",
+            headers=headers,
+            json={
+                "account_id": source["id"],
+                "signal_type": "funding",
+                "description": "Raised a new growth funding round",
+                "confidence": 100,
+            },
+        ).json()
         merged = client.post(f"/api/v1/accounts/{source['id']}/merge/{target['id']}", headers=headers)
         target_after = client.get(f"/api/v1/accounts/{target['id']}", headers=headers)
         source_signals = client.get(f"/api/v1/accounts/{target['id']}/signals", headers=headers)
